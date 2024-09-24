@@ -12,16 +12,33 @@ import StoreKit
 import SwiftUI
 
 struct ContentView: View {
+    
+    @State private var inputKeyLog: [String] = []
+    @State private var showLogAlert = false
+    @State private var logMessage = "No input Keys Logged"
+    
     @State private var showingFilters = false
     @State private var processedImage: Image?
     @State private var filterIntensity = 0.5
+    @State private var radiusIntensity = 100.0
+    @State private var scaleIntensity = 5.0
     @State private var selectedItem: PhotosPickerItem?
     @State private var currentFilter: CIFilter = CIFilter.sepiaTone()
     //insted of @State private ar currentFilter = CIFilter.sepiaTone() *1
     let context = CIContext()
+    let radiusFilters: [CIFilter] = [
+        CIFilter.gaussianBlur(),
+        CIFilter.boxBlur(),
+    ]
+    @State private var center: CIVector
     
     @AppStorage("filterCount") var filterCount = 0
     @Environment(\.requestReview) var requestReview
+    
+    // Inicializador padrão
+        init(center: CIVector = CIVector(x: 150, y: 150)) {
+            self.center = center
+        }
     
     var body: some View {
         NavigationStack {
@@ -37,41 +54,105 @@ struct ContentView: View {
                         ContentUnavailableView("No Picture", systemImage: "photo.badge.plus", description: Text("Tap to to import a photo"))
                     }
                 }
+
                 .buttonStyle(.plain)
                 .onChange(of: selectedItem, loadImage)
                 Spacer()
                 
-                HStack {
-                    Text("Intensity")
-                    Slider(value: $filterIntensity)
-                        .onChange(of: filterIntensity, applyProcessing)
+                List(inputKeyLog, id: \.self) {
+                    Text($0)
                 }
-                .padding(.vertical)
                 
-                HStack {
-                    Button("Change Filter", action: changeFilter)
-                    Spacer()
-                    
-                    //Share the picture
-                    ///that needs to be replaced with a check to see if there is an image to share, and, if there is, a ShareLink button using it.
-                    
-                    if let processedImage {
-                        ShareLink(item: processedImage, preview: SharePreview("Instafilter Image", image: processedImage))
+                Spacer()
+                
+                if let processedImage {
+                    VStack {
+                        VStack {
+                            if currentFilter.inputKeys.contains(kCIInputIntensityKey) {
+                                Text("Intensity")
+                                Slider(value: $filterIntensity, in: 0...1)
+                                    .onChange(of: filterIntensity)  { oldValue, newValue in
+                                        applyProcessing(center)
+                                    }
+                            }
+                            
+                            if currentFilter.inputKeys.contains(kCIInputRadiusKey) {
+                                //Challange n1: we can do instead of if let:
+                                ///.disabled(processedImage == nil
+                                Text("Radius")
+                                
+                                Slider(value: $radiusIntensity, in: 0...200)
+                                    .onChange(of: radiusIntensity) { oldValue, newValue in
+                                        applyProcessing(center)
+                                    }
+                            }
+                            
+                            if currentFilter.inputKeys.contains(kCIInputScaleKey) {
+                                //Challange n1: we can do instead of if let:
+                                ///.disabled(processedImage == nil
+                                Text("Scale")
+                                
+                                Slider(value: $scaleIntensity, in: 0...10)
+                                    .onChange(of: scaleIntensity) { oldValue, newValue in
+                                        applyProcessing(center)
+                                    }
+                            }
+                        }
+                        .padding(.vertical)
+                        
+                        HStack {
+                            Button("Change Filter", action: changeFilter)
+                            //Challange n1: we can do instead of if let:
+                            ///.disabled(processedImage == nil
+                            Spacer()
+                            
+                            //Share the picture
+                            ///that needs to be replaced with a check to see if there is an image to share, and, if there is, a ShareLink button using it, we need to put if let processed image here or in all code like line 44 (Challange Day 67)
+                            
+                            ShareLink(item: processedImage, preview: SharePreview("Instafilter Image", image: processedImage))
+                        }
                     }
                 }
             }
             .padding([.horizontal, .bottom])
             .navigationTitle("InstaFilter")
             .confirmationDialog("Select a Filter", isPresented: $showingFilters) {
-                Button("Crystallize") { setFilter(CIFilter.crystallize())}
-                Button("Gaussian Blur") { setFilter(CIFilter.gaussianBlur())}
-                Button("Edges") { setFilter(CIFilter.edges())}
-                Button("Pixellate") { setFilter(CIFilter.pixellate())}
-                Button("Sepia Tone") { setFilter(CIFilter.sepiaTone())}
-                Button("Unsharp Mask") { setFilter(CIFilter.unsharpMask())}
-                Button("Vignette") { setFilter(CIFilter.vignette())}
+                Button("Bloom") { setFilter(CIFilter.bloom())
+                    logInputKeysCurrentFilter()}
+                Button("Crystallize") { setFilter(CIFilter.crystallize())
+                    logInputKeysCurrentFilter()}
+                Button("Gaussian Blur") { setFilter(CIFilter.gaussianBlur())
+                    logInputKeysCurrentFilter()}
+                Button("Noir") { setFilter(CIFilter.photoEffectNoir())
+                    logInputKeysCurrentFilter()}
+                Button("Edges") { setFilter(CIFilter.edges())
+                    logInputKeysCurrentFilter()}
+                Button("Pixellate") { setFilter(CIFilter.pixellate())
+                    logInputKeysCurrentFilter()}
+                Button("Pointllize") { setFilter(CIFilter.pointillize())
+                    logInputKeysCurrentFilter()}
+                Button("Sepia Tone") { setFilter(CIFilter.sepiaTone())
+                    logInputKeysCurrentFilter()}
+                Button("Unsharp Mask") { setFilter(CIFilter.unsharpMask())
+                    logInputKeysCurrentFilter()}
+                Button("Vignette") { setFilter(CIFilter.vignette())
+                    logInputKeysCurrentFilter()}
+                Button("Bump Distortion") { setFilter(CIFilter.bumpDistortion())
+                    logInputKeysCurrentFilter()}
+                Button("Color Invert") { setFilter(CIFilter.colorInvert())
+                    logInputKeysCurrentFilter()}
                 Button("Cancel", role: .cancel) { }
                                             
+            }
+            .alert("Selected Filter Inpu Keys", isPresented: $showLogAlert) {
+                Button ("Log") {
+                    
+                }
+                Button ("ok"){
+                    
+                }
+            } message: {
+                Text(logMessage)
             }
         }
         .padding()
@@ -88,12 +169,13 @@ struct ContentView: View {
             
             let beginImage = CIImage(image: inputImage)
             currentFilter.setValue(beginImage, forKey: kCIInputImageKey)
-            applyProcessing()
+            center = CIVector(x: inputImage.size.width / 2, y: inputImage.size.height / 2)
+            applyProcessing(center)
             
         }
     }
     
-    func applyProcessing() {
+    func applyProcessing(_ center: CIVector) {
         // *1 - CIFilter.sepiaTone() returns a CIFilter object that conforms to the CISepiaTone protocol. Adding that explicit type annotation means we’re throwing away some data: we’re saying that the filter must be a CIFilter but doesn’t have to conform to CISepiaTone any more.As a result of this change we lose access to the intensity property, which means this code won’t work any more:
         
         //currentFilter.intensity = Float(filterIntensity)
@@ -104,9 +186,18 @@ struct ContentView: View {
         
         let inputKeys = currentFilter.inputKeys
         
+        /*  ###### TO DO LATER: IMPLEMENT ALL FILTERS KEYS TO A SLIDER SO USER CAN CONTROL IT (LIKE SCALE FOR EXAMPLE)  ######### */
+        
         if inputKeys.contains(kCIInputIntensityKey) { currentFilter.setValue(filterIntensity, forKey: kCIInputIntensityKey) }
-        if inputKeys.contains(kCIInputRadiusKey) { currentFilter.setValue(filterIntensity * 200, forKey: kCIInputRadiusKey) }
-        if inputKeys.contains(kCIInputScaleKey) { currentFilter.setValue(filterIntensity * 10, forKey: kCIInputScaleKey) }
+        if inputKeys.contains(kCIInputRadiusKey) {
+            currentFilter.setValue(radiusIntensity, forKey: kCIInputRadiusKey)
+        
+            if inputKeys.contains(kCIInputCenterKey) {
+                currentFilter.setValue(center, forKey: kCIInputCenterKey)
+            }
+            
+        }
+        if inputKeys.contains(kCIInputScaleKey) { currentFilter.setValue(filterIntensity, forKey: kCIInputScaleKey) }
         
         guard let outputImage = currentFilter.outputImage else { return }
         guard let cgImage = context.createCGImage(outputImage,from: outputImage.extent) else { return }
@@ -130,6 +221,26 @@ struct ContentView: View {
         }
         
     }
+    
+    ///lines below to log purpose
+    func logInputKeysCurrentFilter () {
+        let inputKeys = currentFilter.inputKeys
+        inputKeyLog.removeAll()
+        for inputKey in inputKeys {
+            inputKeyLog.append(inputKey)
+        }
+        
+        /*  ###### TO DO LATER: SAVE ALL INPUT KEYS ON A JSON FILE ######### */
+        //do a for loop to print in an alert all the inputkeylog array
+        /*for inputKey in inputKeyLog {
+            showLogAlert = false
+            if inputKeyLog.contains(inputKey) {
+                logMessage = "InputKeys that this filter apply: \(inputKey)"
+            }
+            showLogAlert = true
+        }*/
+    }
+    /// end to log purpose
     
 }
 
